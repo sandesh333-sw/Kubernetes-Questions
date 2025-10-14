@@ -1,0 +1,184 @@
+# 1. Create Namespaces
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: development
+  labels:
+    environment: dev
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    environment: staging
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    environment: prod
+
+---
+# 2. ResourceQuota (Limit resources per namespace)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: dev-quota
+  namespace: development
+spec:
+  hard:
+    # Limit total CPU and memory
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    
+    # Limit object counts
+    pods: "50"
+    services: "20"
+    persistentvolumeclaims: "10"
+    
+    # Limit storage
+    requests.storage: 100Gi
+
+---
+# 3. LimitRange (Default limits for containers)
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: dev-limits
+  namespace: development
+spec:
+  limits:
+  # Container limits
+  - max:
+      cpu: "2"
+      memory: "2Gi"
+    min:
+      cpu: "50m"
+      memory: "32Mi"
+    default:
+      cpu: "500m"
+      memory: "256Mi"
+    defaultRequest:
+      cpu: "200m"
+      memory: "128Mi"
+    type: Container
+  
+  # Pod limits
+  - max:
+      cpu: "4"
+      memory: "8Gi"
+    type: Pod
+
+---
+# 4. Deploy resources in different namespaces
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  namespace: development
+  labels:
+    app: webapp
+    environment: dev
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+      - name: webapp
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+  namespace: development
+spec:
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+# 5. Cross-namespace service access
+# Access service in another namespace via DNS:
+# service-name.namespace-name.svc.cluster.local
+apiVersion: v1
+kind: Pod
+metadata:
+  name: client-pod
+  namespace: production
+spec:
+  containers:
+  - name: client
+    image: busybox:1.36
+    command: ["sh", "-c"]
+    args:
+    - |
+      # Access service in development namespace
+      echo "Testing cross-namespace access..."
+      wget -O- http://webapp-service.development.svc.cluster.local
+      sleep 3600
+
+---
+# 6. Example: Multi-environment setup
+# Production namespace with strict quotas
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: production
+  labels:
+    environment: production
+
+---
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: production-quota
+  namespace: production
+spec:
+  hard:
+    requests.cpu: "50"
+    requests.memory: 100Gi
+    limits.cpu: "100"
+    limits.memory: 200Gi
+    pods: "100"
+    services: "50"
+
+---
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: production-limits
+  namespace: production
+spec:
+  limits:
+  - max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "100m"
+      memory: "64Mi"
+    default:
+      cpu: "1000m"
+      memory: "1Gi"
+    defaultRequest:
+      cpu: "500m"
+      memory: "512Mi"
+    type: Container
+

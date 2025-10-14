@@ -1,0 +1,244 @@
+# 1. ClusterIP Service (Default - Internal Only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-clusterip
+  labels:
+    app: backend
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+  - port: 8080        # Service port
+    targetPort: 8080  # Container port
+    name: http
+
+---
+# Backend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  labels:
+    app: backend
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: backend
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=Backend API v1.0"
+        ports:
+        - containerPort: 5678
+
+---
+# 2. NodePort Service (External Access via Node IP)
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-nodeport
+  labels:
+    app: frontend
+spec:
+  type: NodePort
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+    nodePort: 30080  # Accessible via <NodeIP>:30080
+
+---
+# Frontend Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  labels:
+    app: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+
+---
+# 3. LoadBalancer Service (Cloud Provider Load Balancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: web-loadbalancer
+  labels:
+    app: web
+spec:
+  type: LoadBalancer
+  selector:
+    app: web
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+  # Optional: Request specific IP
+  # loadBalancerIP: 203.0.113.10
+
+---
+# Web Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+  labels:
+    app: web
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: web
+  template:
+    metadata:
+      labels:
+        app: web
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+
+---
+# 4. ExternalName Service (DNS alias to external service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-database
+spec:
+  type: ExternalName
+  externalName: database.example.com
+  ports:
+  - port: 3306
+
+---
+# 5. Service with Session Affinity (Sticky Sessions)
+apiVersion: v1
+kind: Service
+metadata:
+  name: sticky-service
+spec:
+  type: ClusterIP
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+  # Session affinity - route same client to same Pod
+  sessionAffinity: ClientIP
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+
+---
+# 6. Headless Service (No ClusterIP - for StatefulSets)
+apiVersion: v1
+kind: Service
+metadata:
+  name: database-headless
+spec:
+  clusterIP: None  # Headless service
+  selector:
+    app: database
+  ports:
+  - port: 5432
+    targetPort: 5432
+
+---
+# Database StatefulSet (uses headless service)
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: database
+spec:
+  serviceName: database-headless
+  replicas: 3
+  selector:
+    matchLabels:
+      app: database
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15-alpine
+        env:
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        ports:
+        - containerPort: 5432
+
+---
+# 7. Multi-Port Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: multi-port-service
+spec:
+  selector:
+    app: multi-port-app
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+  - name: https
+    port: 443
+    targetPort: 8443
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+
+---
+# Multi-Port Application
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: multi-port-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: multi-port-app
+  template:
+    metadata:
+      labels:
+        app: multi-port-app
+    spec:
+      containers:
+      - name: app
+        image: nginx:1.24
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8443
+          name: https
+        - containerPort: 9090
+          name: metrics
+

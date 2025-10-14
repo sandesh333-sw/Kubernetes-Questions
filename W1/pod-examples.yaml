@@ -1,0 +1,247 @@
+# 1. Simple Pod with single container
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-simple
+  labels:
+    app: nginx
+    environment: dev
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+
+---
+# 2. Pod with resource limits
+apiVersion: v1
+kind: Pod
+metadata:
+  name: nginx-with-resources
+  labels:
+    app: nginx
+spec:
+  containers:
+  - name: nginx
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+    
+    # Resource requests and limits
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "100m"
+      limits:
+        memory: "128Mi"
+        cpu: "200m"
+
+---
+# 3. Pod with environment variables
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-env
+  labels:
+    app: webapp
+spec:
+  containers:
+  - name: webapp
+    image: nginx:1.24
+    
+    # Environment variables
+    env:
+    - name: ENVIRONMENT
+      value: "production"
+    - name: APP_VERSION
+      value: "v1.0.0"
+    - name: DATABASE_HOST
+      value: "db.example.com"
+    
+    ports:
+    - containerPort: 80
+
+---
+# 4. Pod with command and args
+apiVersion: v1
+kind: Pod
+metadata:
+  name: busybox-custom-command
+spec:
+  containers:
+  - name: busybox
+    image: busybox:1.36
+    command: ["/bin/sh"]
+    args:
+    - "-c"
+    - |
+      echo "Pod started at $(date)"
+      echo "Hostname: $(hostname)"
+      echo "Sleeping for 3600 seconds..."
+      sleep 3600
+  
+  restartPolicy: Never
+
+---
+# 5. Multi-container Pod (Sidecar pattern)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp-with-sidecar
+  labels:
+    app: webapp
+spec:
+  # Shared volume
+  volumes:
+  - name: shared-logs
+    emptyDir: {}
+  
+  containers:
+  # Main application container
+  - name: webapp
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: shared-logs
+      mountPath: /var/log/nginx
+  
+  # Sidecar container (log processor)
+  - name: log-processor
+    image: busybox:1.36
+    command: ["/bin/sh"]
+    args:
+    - "-c"
+    - |
+      while true; do
+        if [ -f /logs/access.log ]; then
+          echo "=== Access Log (last 5 lines) ==="
+          tail -5 /logs/access.log
+        fi
+        sleep 10
+      done
+    volumeMounts:
+    - name: shared-logs
+      mountPath: /logs
+
+---
+# 6. Init Container example
+apiVersion: v1
+kind: Pod
+metadata:
+  name: webapp-with-init
+  labels:
+    app: webapp
+spec:
+  # Init containers run before main containers
+  initContainers:
+  - name: init-setup
+    image: busybox:1.36
+    command: ['sh', '-c']
+    args:
+    - |
+      echo "Initializing application..."
+      echo "Checking database connection..."
+      sleep 5
+      echo "Setup complete!"
+  
+  containers:
+  - name: webapp
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+
+---
+# 7. Pod with labels and annotations
+apiVersion: v1
+kind: Pod
+metadata:
+  name: annotated-pod
+  
+  # Labels (for selection)
+  labels:
+    app: myapp
+    tier: frontend
+    environment: production
+    version: v1
+  
+  # Annotations (metadata only)
+  annotations:
+    description: "Production frontend application"
+    owner: "platform-team@example.com"
+    commit: "abc123def456"
+    deployed-at: "2024-10-13"
+spec:
+  containers:
+  - name: app
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+
+---
+# 8. Pod in specific namespace
+apiVersion: v1
+kind: Pod
+metadata:
+  name: production-app
+  namespace: production
+  labels:
+    app: myapp
+spec:
+  containers:
+  - name: app
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+
+---
+# 9. Pod with host aliases (custom /etc/hosts)
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-host-aliases
+spec:
+  hostAliases:
+  - ip: "192.168.1.100"
+    hostnames:
+    - "database.internal"
+    - "db.internal"
+  - ip: "192.168.1.101"
+    hostnames:
+    - "cache.internal"
+  
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["sh", "-c"]
+    args:
+    - |
+      cat /etc/hosts
+      sleep 3600
+
+---
+# 10. Pod with DNS policy
+apiVersion: v1
+kind: Pod
+metadata:
+  name: pod-with-dns
+spec:
+  # DNS Policy
+  dnsPolicy: ClusterFirst
+  
+  # Custom DNS config
+  dnsConfig:
+    nameservers:
+    - 8.8.8.8
+    searches:
+    - example.com
+    options:
+    - name: ndots
+      value: "2"
+  
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["sh", "-c", "cat /etc/resolv.conf && sleep 3600"]
+

@@ -1,0 +1,124 @@
+# Production-ready Web Application Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp
+  labels:
+    app: webapp
+    environment: production
+  annotations:
+    description: "Production web application"
+spec:
+  # High availability with 5 replicas
+  replicas: 5
+  
+  # Deployment strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1        # Max 1 extra Pod during update
+      maxUnavailable: 1  # Max 1 Pod unavailable during update
+  
+  # Selector
+  selector:
+    matchLabels:
+      app: webapp
+  
+  # Pod template
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: v1
+    spec:
+      containers:
+      - name: webapp
+        image: nginx:1.24
+        
+        ports:
+        - containerPort: 80
+          name: http
+        
+        # Environment variables
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        - name: APP_VERSION
+          value: "v1.0.0"
+        
+        # Resource limits (important for production)
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
+          limits:
+            memory: "128Mi"
+            cpu: "200m"
+
+---
+# ClusterIP Service for internal access
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+  labels:
+    app: webapp
+spec:
+  type: ClusterIP
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+    name: http
+
+---
+# Example with multiple containers (sidecar pattern)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: webapp-with-sidecar
+  labels:
+    app: webapp-sidecar
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: webapp-sidecar
+  template:
+    metadata:
+      labels:
+        app: webapp-sidecar
+    spec:
+      # Shared volume for logs
+      volumes:
+      - name: logs
+        emptyDir: {}
+      
+      containers:
+      # Main application container
+      - name: webapp
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/nginx
+      
+      # Sidecar container for log processing
+      - name: log-processor
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          while true; do
+            echo "Processing logs at $(date)"
+            tail -f /var/log/nginx/access.log 2>/dev/null || true
+            sleep 10
+          done
+        volumeMounts:
+        - name: logs
+          mountPath: /var/log/nginx
+          readOnly: true
+
