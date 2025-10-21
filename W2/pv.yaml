@@ -1,0 +1,123 @@
+# PersistentVolume - Cluster-level storage resource
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-local-storage
+  labels:
+    type: local
+spec:
+  # Storage capacity
+  capacity:
+    storage: 10Gi
+  
+  # Access modes:
+  # - ReadWriteOnce (RWO): mounted as read-write by single node
+  # - ReadOnlyMany (ROX): mounted as read-only by many nodes
+  # - ReadWriteMany (RWX): mounted as read-write by many nodes
+  accessModes:
+    - ReadWriteOnce
+  
+  # Reclaim policy: what happens when PVC is deleted
+  # - Retain: keep PV and data (manual cleanup)
+  # - Delete: delete PV and underlying storage
+  # - Recycle: deprecated (rm -rf)
+  persistentVolumeReclaimPolicy: Retain
+  
+  # Storage class name (optional)
+  storageClassName: manual
+  
+  # Volume type - hostPath (for local testing only!)
+  hostPath:
+    path: /mnt/data
+    type: DirectoryOrCreate
+
+---
+# PersistentVolume with NFS
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-nfs-storage
+  labels:
+    type: nfs
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteMany  # NFS supports RWX
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: nfs
+  nfs:
+    server: nfs-server.example.com
+    path: /exports/data
+  mountOptions:
+    - hard
+    - nfsvers=4.1
+
+---
+# PersistentVolume with AWS EBS (example)
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-aws-ebs
+  labels:
+    type: aws-ebs
+spec:
+  capacity:
+    storage: 50Gi
+  accessModes:
+    - ReadWriteOnce  # EBS only supports RWO
+  persistentVolumeReclaimPolicy: Delete
+  storageClassName: aws-ebs-gp3
+  awsElasticBlockStore:
+    volumeID: vol-0abcd1234efgh5678
+    fsType: ext4
+
+---
+# Multiple PVs with different sizes
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-small
+spec:
+  capacity:
+    storage: 5Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/pv-small
+    type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-medium
+spec:
+  capacity:
+    storage: 10Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/pv-medium
+    type: DirectoryOrCreate
+
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: pv-large
+spec:
+  capacity:
+    storage: 20Gi
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: manual
+  hostPath:
+    path: /mnt/pv-large
+    type: DirectoryOrCreate
+

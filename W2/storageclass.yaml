@@ -1,0 +1,113 @@
+# StorageClass for dynamic provisioning
+# Note: This requires a provisioner to be installed in your cluster
+
+# Example 1: Local storage (for development/testing)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-storage
+provisioner: kubernetes.io/no-provisioner
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+
+---
+# Example 2: AWS EBS gp3 (fast SSD)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: aws-ebs-gp3
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: ebs.csi.aws.com
+parameters:
+  type: gp3
+  iops: "3000"
+  throughput: "125"
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+
+---
+# Example 3: AWS EBS io2 (high-performance)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: aws-ebs-io2
+provisioner: ebs.csi.aws.com
+parameters:
+  type: io2
+  iops: "10000"
+  encrypted: "true"
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Retain  # Keep data even if PVC is deleted
+allowVolumeExpansion: true
+
+---
+# Example 4: GCP Persistent Disk (SSD)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: gcp-ssd
+provisioner: pd.csi.storage.gke.io
+parameters:
+  type: pd-ssd
+  replication-type: regional-pd
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+
+---
+# Example 5: Azure Disk (Premium SSD)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: azure-premium-ssd
+provisioner: disk.csi.azure.com
+parameters:
+  storageaccounttype: Premium_LRS
+  kind: Managed
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+allowVolumeExpansion: true
+
+---
+# Example 6: NFS StorageClass (using NFS provisioner)
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: nfs-storage
+provisioner: nfs.csi.k8s.io
+parameters:
+  server: nfs-server.example.com
+  share: /exports/dynamic
+mountOptions:
+  - hard
+  - nfsvers=4.1
+volumeBindingMode: Immediate
+reclaimPolicy: Delete
+
+---
+# Example 7: Local Path Provisioner (for bare-metal/on-prem)
+# Requires: https://github.com/rancher/local-path-provisioner
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: local-path
+provisioner: rancher.io/local-path
+volumeBindingMode: WaitForFirstConsumer
+reclaimPolicy: Delete
+
+---
+# StorageClass comparison table:
+# 
+# | Name                | Provisioner            | Use Case                    | Access Mode | Performance |
+# |---------------------|------------------------|-----------------------------|-------------|-------------|
+# | local-storage       | no-provisioner         | Dev/testing                 | RWO         | Fast        |
+# | aws-ebs-gp3         | ebs.csi.aws.com        | General purpose (AWS)       | RWO         | Good        |
+# | aws-ebs-io2         | ebs.csi.aws.com        | High IOPS databases (AWS)   | RWO         | Excellent   |
+# | gcp-ssd             | pd.csi.storage.gke.io  | General purpose (GCP)       | RWO/ROX     | Good        |
+# | azure-premium-ssd   | disk.csi.azure.com     | Production workloads (Azure)| RWO         | Good        |
+# | nfs-storage         | nfs.csi.k8s.io         | Shared storage              | RWX         | Medium      |
+# | local-path          | rancher.io/local-path  | Bare-metal/on-prem          | RWO         | Fast        |
+

@@ -1,0 +1,39 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+  labels:
+    app: demo-app
+data:
+  # Simple key-value pairs
+  DATABASE_URL: "postgres://db.example.com:5432/mydb"
+  LOG_LEVEL: "info"
+  MAX_CONNECTIONS: "100"
+  TIMEOUT: "30s"
+  FEATURE_FLAG_NEW_UI: "true"
+  
+  # Multi-line configuration file
+  app.properties: |
+    # Application Properties
+    app.name=DemoApp
+    app.version=1.0.0
+    max.connections=100
+    timeout=30s
+    retry.attempts=3
+    
+  # Nginx configuration example
+  nginx.conf: |
+    server {
+      listen 80;
+      server_name localhost;
+      
+      location / {
+        root /usr/share/nginx/html;
+        index index.html;
+      }
+      
+      location /api {
+        proxy_pass http://backend:8080;
+      }
+    }
+

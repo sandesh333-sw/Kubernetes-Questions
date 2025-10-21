@@ -1,0 +1,104 @@
+# PersistentVolumeClaim - User's request for storage
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-app-storage
+  labels:
+    app: demo-app
+spec:
+  # Access modes - must match PV
+  accessModes:
+    - ReadWriteOnce
+  
+  # Storage class - matches PV's storageClassName
+  storageClassName: manual
+  
+  # Resource request
+  resources:
+    requests:
+      storage: 5Gi  # Will bind to PV with >= 5Gi capacity
+  
+  # Optional: Selector to bind to specific PV
+  # selector:
+  #   matchLabels:
+  #     type: local
+
+---
+# PVC without specifying storageClassName (uses default)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-default-storage
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# PVC with specific selector
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-nfs-storage
+  labels:
+    app: shared-data
+spec:
+  accessModes:
+    - ReadWriteMany
+  storageClassName: nfs
+  resources:
+    requests:
+      storage: 15Gi
+  selector:
+    matchLabels:
+      type: nfs
+
+---
+# Multiple PVCs for different purposes
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-database
+  labels:
+    app: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-uploads
+  labels:
+    app: web-app
+    purpose: user-uploads
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 5Gi
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pvc-logs
+  labels:
+    app: logging
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: manual
+  resources:
+    requests:
+      storage: 3Gi
+

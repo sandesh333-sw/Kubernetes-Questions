@@ -1,0 +1,191 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-persistent-storage
+  labels:
+    app: demo-app
+spec:
+  containers:
+  - name: app
+    image: nginx:1.24
+    
+    ports:
+    - containerPort: 80
+    
+    volumeMounts:
+    # Mount PVC to store persistent data
+    - name: app-storage
+      mountPath: /usr/share/nginx/html
+    
+    # Mount another PVC for uploads
+    - name: uploads-storage
+      mountPath: /var/www/uploads
+  
+  volumes:
+  # Use PersistentVolumeClaim
+  - name: app-storage
+    persistentVolumeClaim:
+      claimName: pvc-app-storage
+  
+  - name: uploads-storage
+    persistentVolumeClaim:
+      claimName: pvc-uploads
+
+---
+# Example: Database Pod with PVC
+apiVersion: v1
+kind: Pod
+metadata:
+  name: postgres-db
+  labels:
+    app: postgres
+spec:
+  containers:
+  - name: postgres
+    image: postgres:15-alpine
+    
+    env:
+    - name: POSTGRES_DB
+      value: mydb
+    - name: POSTGRES_USER
+      valueFrom:
+        secretKeyRef:
+          name: app-secret
+          key: username
+    - name: POSTGRES_PASSWORD
+      valueFrom:
+        secretKeyRef:
+          name: app-secret
+          key: password
+    - name: PGDATA
+      value: /var/lib/postgresql/data/pgdata
+    
+    ports:
+    - containerPort: 5432
+      name: postgres
+    
+    volumeMounts:
+    - name: postgres-storage
+      mountPath: /var/lib/postgresql/data
+  
+  volumes:
+  - name: postgres-storage
+    persistentVolumeClaim:
+      claimName: pvc-database
+
+---
+# Example: Pod with multiple volume types
+apiVersion: v1
+kind: Pod
+metadata:
+  name: multi-volume-pod
+  labels:
+    app: demo
+spec:
+  containers:
+  - name: app
+    image: busybox:1.36
+    command: ["/bin/sh"]
+    args:
+    - -c
+    - |
+      echo "Testing volumes..."
+      
+      # Test emptyDir (temporary)
+      echo "Writing to cache..." > /cache/test.txt
+      cat /cache/test.txt
+      
+      # Test PVC (persistent)
+      echo "Data written at $(date)" >> /data/persistent.log
+      cat /data/persistent.log
+      
+      # Test ConfigMap
+      echo "Config files:"
+      ls -la /etc/config/
+      
+      # Test Secret
+      echo "Secret files:"
+      ls -la /etc/secrets/
+      
+      echo "Sleeping..."
+      sleep 3600
+    
+    volumeMounts:
+    # emptyDir - temporary cache
+    - name: cache-volume
+      mountPath: /cache
+    
+    # PVC - persistent data
+    - name: data-volume
+      mountPath: /data
+    
+    # ConfigMap - configuration
+    - name: config-volume
+      mountPath: /etc/config
+      readOnly: true
+    
+    # Secret - sensitive data
+    - name: secret-volume
+      mountPath: /etc/secrets
+      readOnly: true
+  
+  volumes:
+  # emptyDir volume
+  - name: cache-volume
+    emptyDir: {}
+  
+  # PersistentVolumeClaim
+  - name: data-volume
+    persistentVolumeClaim:
+      claimName: pvc-app-storage
+  
+  # ConfigMap
+  - name: config-volume
+    configMap:
+      name: app-config
+  
+  # Secret
+  - name: secret-volume
+    secret:
+      secretName: app-secret
+
+---
+# Example: Init container that prepares data on PVC
+apiVersion: v1
+kind: Pod
+metadata:
+  name: app-with-init-storage
+  labels:
+    app: web-app
+spec:
+  # Init containers run before main containers
+  initContainers:
+  - name: setup-data
+    image: busybox:1.36
+    command: ["/bin/sh"]
+    args:
+    - -c
+    - |
+      echo "Setting up initial data..."
+      mkdir -p /data/uploads /data/cache
+      echo "<h1>Welcome to My App</h1>" > /data/index.html
+      echo "Setup completed at $(date)" > /data/setup.log
+      ls -la /data/
+    volumeMounts:
+    - name: app-data
+      mountPath: /data
+  
+  containers:
+  - name: nginx
+    image: nginx:1.24
+    ports:
+    - containerPort: 80
+    volumeMounts:
+    - name: app-data
+      mountPath: /usr/share/nginx/html
+  
+  volumes:
+  - name: app-data
+    persistentVolumeClaim:
+      claimName: pvc-app-storage
+
