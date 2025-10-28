@@ -1,0 +1,325 @@
+# DaemonSet - Runs one Pod on every node
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: node-exporter
+  labels:
+    app: node-exporter
+spec:
+  selector:
+    matchLabels:
+      app: node-exporter
+  
+  template:
+    metadata:
+      labels:
+        app: node-exporter
+    spec:
+      # Host network mode (optional - for network monitoring)
+      hostNetwork: true
+      hostPID: true
+      
+      containers:
+      - name: node-exporter
+        image: prom/node-exporter:latest
+        args:
+        - --path.procfs=/host/proc
+        - --path.sysfs=/host/sys
+        - --path.rootfs=/host/root
+        - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+        
+        ports:
+        - containerPort: 9100
+          name: metrics
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+        
+        # Mount host filesystem
+        volumeMounts:
+        - name: proc
+          mountPath: /host/proc
+          readOnly: true
+        - name: sys
+          mountPath: /host/sys
+          readOnly: true
+        - name: root
+          mountPath: /host/root
+          readOnly: true
+      
+      volumes:
+      - name: proc
+        hostPath:
+          path: /proc
+      - name: sys
+        hostPath:
+          path: /sys
+      - name: root
+        hostPath:
+          path: /
+
+---
+# DaemonSet for log collection
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: fluentd
+  labels:
+    app: fluentd
+spec:
+  selector:
+    matchLabels:
+      app: fluentd
+  
+  template:
+    metadata:
+      labels:
+        app: fluentd
+    spec:
+      containers:
+      - name: fluentd
+        image: fluent/fluentd-kubernetes-daemonset:v1-debian-elasticsearch
+        
+        env:
+        - name: FLUENT_ELASTICSEARCH_HOST
+          value: "elasticsearch.logging.svc.cluster.local"
+        - name: FLUENT_ELASTICSEARCH_PORT
+          value: "9200"
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 200Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi
+        
+        volumeMounts:
+        # Access to container logs
+        - name: varlog
+          mountPath: /var/log
+        - name: varlibdockercontainers
+          mountPath: /var/lib/docker/containers
+          readOnly: true
+      
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+      - name: varlibdockercontainers
+        hostPath:
+          path: /var/lib/docker/containers
+
+---
+# DaemonSet with node selector (only on specific nodes)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: monitoring-agent-ssd
+  labels:
+    app: monitoring
+spec:
+  selector:
+    matchLabels:
+      app: monitoring
+  
+  template:
+    metadata:
+      labels:
+        app: monitoring
+    spec:
+      # Only run on nodes with SSD
+      nodeSelector:
+        disktype: ssd
+      
+      containers:
+      - name: agent
+        image: prom/node-exporter:latest
+        ports:
+        - containerPort: 9100
+        
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+          limits:
+            cpu: 100m
+            memory: 64Mi
+
+---
+# DaemonSet with tolerations (run on all nodes including master)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-proxy-custom
+  labels:
+    app: kube-proxy
+spec:
+  selector:
+    matchLabels:
+      app: kube-proxy
+  
+  template:
+    metadata:
+      labels:
+        app: kube-proxy
+    spec:
+      # Tolerate master node taint
+      tolerations:
+      - key: node-role.kubernetes.io/master
+        operator: Exists
+        effect: NoSchedule
+      - key: node-role.kubernetes.io/control-plane
+        operator: Exists
+        effect: NoSchedule
+      
+      hostNetwork: true
+      
+      containers:
+      - name: kube-proxy
+        image: registry.k8s.io/kube-proxy:v1.28.0
+        command:
+        - /usr/local/bin/kube-proxy
+        - --config=/var/lib/kube-proxy/config.conf
+        
+        securityContext:
+          privileged: true
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+
+---
+# DaemonSet with update strategy
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: logging-agent
+  labels:
+    app: logging
+spec:
+  selector:
+    matchLabels:
+      app: logging
+  
+  # Update strategy for DaemonSet
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1  # Update 1 node at a time
+  
+  template:
+    metadata:
+      labels:
+        app: logging
+    spec:
+      containers:
+      - name: fluentd
+        image: fluent/fluentd:v1.16-1
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+        
+        volumeMounts:
+        - name: varlog
+          mountPath: /var/log
+          readOnly: true
+      
+      volumes:
+      - name: varlog
+        hostPath:
+          path: /var/log
+
+---
+# DaemonSet for network plugin (example)
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: kube-flannel
+  namespace: kube-system
+  labels:
+    app: flannel
+spec:
+  selector:
+    matchLabels:
+      app: flannel
+  
+  template:
+    metadata:
+      labels:
+        app: flannel
+    spec:
+      hostNetwork: true
+      
+      # Run on all nodes
+      tolerations:
+      - operator: Exists
+        effect: NoSchedule
+      
+      # Must run on master nodes too
+      nodeSelector:
+        kubernetes.io/os: linux
+      
+      initContainers:
+      - name: install-cni
+        image: quay.io/coreos/flannel:v0.20.0
+        command:
+        - cp
+        args:
+        - -f
+        - /etc/kube-flannel/cni-conf.json
+        - /etc/cni/net.d/10-flannel.conflist
+        volumeMounts:
+        - name: cni
+          mountPath: /etc/cni/net.d
+        - name: flannel-cfg
+          mountPath: /etc/kube-flannel/
+      
+      containers:
+      - name: kube-flannel
+        image: quay.io/coreos/flannel:v0.20.0
+        command:
+        - /opt/bin/flanneld
+        args:
+        - --ip-masq
+        - --kube-subnet-mgr
+        
+        securityContext:
+          privileged: true
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 50Mi
+          limits:
+            cpu: 100m
+            memory: 50Mi
+        
+        volumeMounts:
+        - name: run
+          mountPath: /run/flannel
+        - name: flannel-cfg
+          mountPath: /etc/kube-flannel/
+      
+      volumes:
+      - name: run
+        hostPath:
+          path: /run/flannel
+      - name: cni
+        hostPath:
+          path: /etc/cni/net.d
+      - name: flannel-cfg
+        configMap:
+          name: kube-flannel-cfg
+

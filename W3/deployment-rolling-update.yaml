@@ -1,0 +1,223 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: rolling-update-demo
+  labels:
+    app: webapp
+  annotations:
+    kubernetes.io/change-cause: "Initial deployment with nginx:1.23"
+spec:
+  replicas: 4
+  
+  # Rolling Update Strategy
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1         # Can create 1 extra Pod during update (4 + 1 = 5 max)
+      maxUnavailable: 0   # No Pods can be unavailable (always have 4 running)
+  
+  selector:
+    matchLabels:
+      app: webapp
+  
+  template:
+    metadata:
+      labels:
+        app: webapp
+        version: v1
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.23  # Initial version
+        ports:
+        - containerPort: 80
+        
+        # Always use probes!
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 10
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+---
+# Service to access the deployment
+apiVersion: v1
+kind: Service
+metadata:
+  name: webapp-service
+spec:
+  selector:
+    app: webapp
+  ports:
+  - port: 80
+    targetPort: 80
+  type: ClusterIP
+
+---
+# Example: Recreate strategy (causes downtime)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: recreate-demo
+  labels:
+    app: database
+spec:
+  replicas: 1
+  
+  # Recreate Strategy - kill all old pods first, then create new ones
+  # Use when you can't run multiple versions simultaneously
+  strategy:
+    type: Recreate
+  
+  selector:
+    matchLabels:
+      app: database
+  
+  template:
+    metadata:
+      labels:
+        app: database
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:14-alpine
+        env:
+        - name: POSTGRES_PASSWORD
+          value: postgres
+        ports:
+        - containerPort: 5432
+
+---
+# Example: Zero-downtime update with conservative settings
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zero-downtime
+  labels:
+    app: critical-app
+spec:
+  replicas: 6
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 2         # Can create 2 extra Pods (6 + 2 = 8 max)
+      maxUnavailable: 0   # Never have unavailable Pods
+  
+  # Minimum ready time before considering Pod available
+  minReadySeconds: 10
+  
+  # How long to wait before timing out a Deployment
+  progressDeadlineSeconds: 600  # 10 minutes
+  
+  # Keep old ReplicaSets for rollback
+  revisionHistoryLimit: 10
+  
+  selector:
+    matchLabels:
+      app: critical-app
+  
+  template:
+    metadata:
+      labels:
+        app: critical-app
+    spec:
+      containers:
+      - name: app
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+        
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          successThreshold: 2  # Must succeed twice
+          failureThreshold: 3
+        
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+      
+      # Pod Disruption Budget to prevent too many pods down at once
+      # This is defined separately below
+
+---
+# Pod Disruption Budget
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: critical-app-pdb
+spec:
+  minAvailable: 4  # At least 4 pods must be available during disruptions
+  selector:
+    matchLabels:
+      app: critical-app
+
+---
+# Example: Aggressive rolling update (faster but riskier)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: aggressive-update
+  labels:
+    app: dev-app
+spec:
+  replicas: 10
+  
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 5         # Can create 5 extra Pods
+      maxUnavailable: 3   # Can have 3 Pods unavailable
+  
+  minReadySeconds: 0  # Don't wait
+  
+  selector:
+    matchLabels:
+      app: dev-app
+  
+  template:
+    metadata:
+      labels:
+        app: dev-app
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            cpu: 50m
+            memory: 32Mi
+

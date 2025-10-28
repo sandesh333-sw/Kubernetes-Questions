@@ -1,0 +1,329 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-with-probes
+  labels:
+    app: webapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: webapp
+  
+  template:
+    metadata:
+      labels:
+        app: webapp
+    spec:
+      containers:
+      - name: webapp
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+        
+        # Liveness Probe - HTTP GET
+        # Checks if container is alive
+        # Restarts container if fails
+        livenessProbe:
+          httpGet:
+            path: /       # Health check endpoint
+            port: 80
+            httpHeaders:
+            - name: Custom-Header
+              value: Awesome
+          initialDelaySeconds: 15  # Wait 15s before first check
+          periodSeconds: 20        # Check every 20s
+          timeoutSeconds: 3        # Wait 3s for response
+          successThreshold: 1      # 1 success = healthy
+          failureThreshold: 3      # 3 failures = restart
+        
+        # Readiness Probe - HTTP GET
+        # Checks if container is ready for traffic
+        # Removes from service endpoints if fails
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 80
+          initialDelaySeconds: 5   # Wait 5s before first check
+          periodSeconds: 10        # Check every 10s
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: 200m
+            memory: 128Mi
+
+---
+# Example with TCP Socket probes (for non-HTTP services)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-with-probes
+  labels:
+    app: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: redis
+  
+  template:
+    metadata:
+      labels:
+        app: redis
+    spec:
+      containers:
+      - name: redis
+        image: redis:7-alpine
+        ports:
+        - containerPort: 6379
+        
+        # Liveness Probe - TCP Socket
+        livenessProbe:
+          tcpSocket:
+            port: 6379
+          initialDelaySeconds: 15
+          periodSeconds: 10
+        
+        # Readiness Probe - exec command
+        readinessProbe:
+          exec:
+            command:
+            - redis-cli
+            - ping
+          initialDelaySeconds: 5
+          periodSeconds: 5
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
+---
+# Example with Exec probes
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-exec-probe
+  labels:
+    app: custom-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: custom-app
+  
+  template:
+    metadata:
+      labels:
+        app: custom-app
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Create health file
+          touch /tmp/healthy
+          
+          # Simulate app running
+          echo "App started"
+          
+          # Run for 60 seconds then remove health file (simulate crash)
+          sleep 60
+          rm /tmp/healthy
+          
+          # Keep running (but unhealthy)
+          sleep 3600
+        
+        # Liveness Probe - exec command
+        livenessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/healthy
+          initialDelaySeconds: 5
+          periodSeconds: 5
+          failureThreshold: 2
+        
+        # Readiness Probe - exec command
+        readinessProbe:
+          exec:
+            command:
+            - test
+            - -f
+            - /tmp/healthy
+          initialDelaySeconds: 3
+          periodSeconds: 3
+
+---
+# Example with Startup Probe (for slow-starting apps)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-slow-startup
+  labels:
+    app: legacy-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: legacy-app
+  
+  template:
+    metadata:
+      labels:
+        app: legacy-app
+    spec:
+      containers:
+      - name: app
+        image: busybox:1.36
+        command:
+        - /bin/sh
+        - -c
+        - |
+          # Simulate slow startup (45 seconds)
+          echo "Starting up..."
+          sleep 45
+          echo "Ready!" > /tmp/ready
+          
+          # Stay alive
+          sleep 3600
+        
+        # Startup Probe - for slow initialization
+        # Disables liveness/readiness until succeeds
+        startupProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/ready
+          initialDelaySeconds: 0
+          periodSeconds: 10
+          failureThreshold: 30  # 10s * 30 = 300s (5 minutes max startup time)
+        
+        # Liveness Probe - only starts after startup succeeds
+        livenessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/ready
+          periodSeconds: 10
+          failureThreshold: 3
+        
+        # Readiness Probe - only starts after startup succeeds
+        readinessProbe:
+          exec:
+            command:
+            - cat
+            - /tmp/ready
+          periodSeconds: 5
+
+---
+# Real-world example: Node.js app with health endpoints
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nodejs-app
+  labels:
+    app: nodejs
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: nodejs
+  
+  template:
+    metadata:
+      labels:
+        app: nodejs
+    spec:
+      containers:
+      - name: nodejs
+        image: node:18-alpine
+        command:
+        - /bin/sh
+        - -c
+        - |
+          cat > server.js << 'EOF'
+          const http = require('http');
+          let ready = false;
+          
+          // Simulate startup delay
+          setTimeout(() => {
+            ready = true;
+            console.log('App is ready');
+          }, 10000);
+          
+          const server = http.createServer((req, res) => {
+            if (req.url === '/health/live') {
+              res.writeHead(200);
+              res.end('OK');
+            } else if (req.url === '/health/ready') {
+              if (ready) {
+                res.writeHead(200);
+                res.end('Ready');
+              } else {
+                res.writeHead(503);
+                res.end('Not Ready');
+              }
+            } else {
+              res.writeHead(200);
+              res.end('Hello World!');
+            }
+          });
+          
+          server.listen(3000, () => {
+            console.log('Server running on port 3000');
+          });
+          EOF
+          
+          node server.js
+        
+        ports:
+        - containerPort: 3000
+        
+        # Startup probe for initial startup
+        startupProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          initialDelaySeconds: 0
+          periodSeconds: 5
+          failureThreshold: 6  # 30 seconds max
+        
+        # Liveness probe
+        livenessProbe:
+          httpGet:
+            path: /health/live
+            port: 3000
+          periodSeconds: 10
+          timeoutSeconds: 3
+          failureThreshold: 3
+        
+        # Readiness probe
+        readinessProbe:
+          httpGet:
+            path: /health/ready
+            port: 3000
+          periodSeconds: 5
+          timeoutSeconds: 2
+          failureThreshold: 3
+        
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 200m
+            memory: 256Mi
+
