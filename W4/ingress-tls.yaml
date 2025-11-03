@@ -1,0 +1,206 @@
+# Ingress with TLS/SSL termination
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tls-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-protocols: "TLSv1.2 TLSv1.3"
+spec:
+  ingressClassName: nginx
+  
+  # TLS configuration
+  tls:
+  - hosts:
+    - myapp.com
+    - www.myapp.com
+    secretName: myapp-tls  # Secret containing tls.crt and tls.key
+  
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+  
+  - host: www.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
+---
+# Multiple TLS certificates for different domains
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: multi-tls-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  
+  tls:
+  # Certificate for myapp.com
+  - hosts:
+    - myapp.com
+    - www.myapp.com
+    secretName: myapp-tls
+  
+  # Certificate for api.myapp.com
+  - hosts:
+    - api.myapp.com
+    secretName: api-myapp-tls
+  
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+  
+  - host: api.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+
+---
+# Cert-Manager integration for automatic TLS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cert-manager-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  
+  tls:
+  - hosts:
+    - myapp.com
+    - www.myapp.com
+    secretName: myapp-tls-auto  # Cert-manager will create this
+  
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
+---
+# Let's Encrypt ClusterIssuer (requires cert-manager installed)
+# Install cert-manager first:
+# kubectl apply -f https://github.com/cert-manager/cert-manager/releases/download/v1.13.0/cert-manager.yaml
+
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+spec:
+  acme:
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+    email: your-email@example.com
+    privateKeySecretRef:
+      name: letsencrypt-staging
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: your-email@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod
+    solvers:
+    - http01:
+        ingress:
+          class: nginx
+
+---
+# Manually create TLS secret (for custom certificates)
+# First, generate or obtain your certificate and key
+
+# Using kubectl:
+# kubectl create secret tls myapp-tls \
+#   --cert=path/to/tls.crt \
+#   --key=path/to/tls.key
+
+# Or create YAML:
+apiVersion: v1
+kind: Secret
+metadata:
+  name: myapp-tls
+type: kubernetes.io/tls
+data:
+  # Base64 encoded certificate
+  tls.crt: LS0tLS1CRUdJTi... (your certificate here)
+  # Base64 encoded private key
+  tls.key: LS0tLS1CRUdJTi... (your private key here)
+
+---
+# Self-signed certificate for testing
+# Generate self-signed cert:
+# openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+#   -keyout tls.key -out tls.crt \
+#   -subj "/CN=myapp.local/O=myapp"
+# 
+# kubectl create secret tls myapp-tls-selfsigned \
+#   --cert=tls.crt --key=tls.key
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: selfsigned-tls-ingress
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - myapp.local
+    secretName: myapp-tls-selfsigned
+  rules:
+  - host: myapp.local
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+

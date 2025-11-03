@@ -1,0 +1,225 @@
+# 1. ClusterIP (default) - Internal only
+apiVersion: v1
+kind: Service
+metadata:
+  name: clusterip-service
+  labels:
+    app: myapp
+spec:
+  type: ClusterIP  # Default, can be omitted
+  selector:
+    app: myapp
+  ports:
+  - name: http
+    port: 80        # Service port
+    targetPort: 8080  # Pod port
+    protocol: TCP
+
+---
+# 2. NodePort - Exposed on each node's IP
+apiVersion: v1
+kind: Service
+metadata:
+  name: nodeport-service
+  labels:
+    app: myapp
+spec:
+  type: NodePort
+  selector:
+    app: myapp
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    nodePort: 30080  # Optional: 30000-32767 range, auto-assigned if omitted
+    protocol: TCP
+
+---
+# 3. LoadBalancer - Cloud provider load balancer
+apiVersion: v1
+kind: Service
+metadata:
+  name: loadbalancer-service
+  labels:
+    app: myapp
+  annotations:
+    # Cloud-specific annotations
+    service.beta.kubernetes.io/aws-load-balancer-type: "nlb"  # AWS Network LB
+    # service.beta.kubernetes.io/azure-load-balancer-resource-group: "my-rg"  # Azure
+    # cloud.google.com/load-balancer-type: "Internal"  # GCP Internal LB
+spec:
+  type: LoadBalancer
+  selector:
+    app: myapp
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  # Optional: loadBalancerIP to request specific IP
+  # loadBalancerIP: 203.0.113.10
+  # Optional: restrict source IPs
+  # loadBalancerSourceRanges:
+  # - 10.0.0.0/8
+
+---
+# 4. ExternalName - DNS CNAME to external service
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-database
+spec:
+  type: ExternalName
+  externalName: database.external.com  # External DNS name
+  ports:
+  - port: 3306
+
+---
+# 5. Headless Service - No ClusterIP, returns Pod IPs
+apiVersion: v1
+kind: Service
+metadata:
+  name: headless-service
+spec:
+  clusterIP: None  # Headless
+  selector:
+    app: stateful-app
+  ports:
+  - port: 3306
+    targetPort: 3306
+
+---
+# Service with multiple ports
+apiVersion: v1
+kind: Service
+metadata:
+  name: multi-port-service
+spec:
+  selector:
+    app: myapp
+  ports:
+  - name: http
+    port: 80
+    targetPort: 8080
+    protocol: TCP
+  - name: https
+    port: 443
+    targetPort: 8443
+    protocol: TCP
+  - name: metrics
+    port: 9090
+    targetPort: 9090
+    protocol: TCP
+
+---
+# Service with session affinity (sticky sessions)
+apiVersion: v1
+kind: Service
+metadata:
+  name: sticky-service
+spec:
+  selector:
+    app: myapp
+  sessionAffinity: ClientIP  # Route same client IP to same Pod
+  sessionAffinityConfig:
+    clientIP:
+      timeoutSeconds: 10800  # 3 hours
+  ports:
+  - port: 80
+    targetPort: 8080
+
+---
+# Service pointing to external IPs (without selector)
+apiVersion: v1
+kind: Service
+metadata:
+  name: external-service
+spec:
+  ports:
+  - port: 80
+    targetPort: 80
+  # No selector
+  externalIPs:
+  - 192.168.1.100
+  - 192.168.1.101
+
+---
+# Corresponding Endpoints (manual)
+apiVersion: v1
+kind: Endpoints
+metadata:
+  name: external-service
+subsets:
+- addresses:
+  - ip: 192.168.1.100
+  - ip: 192.168.1.101
+  ports:
+  - port: 80
+
+---
+# Example Deployment for services above
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: myapp
+  labels:
+    app: myapp
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: myapp
+  template:
+    metadata:
+      labels:
+        app: myapp
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8443
+          name: https
+        - containerPort: 9090
+          name: metrics
+
+---
+# Service with topology-aware routing (prefer same zone)
+apiVersion: v1
+kind: Service
+metadata:
+  name: topology-aware-service
+spec:
+  selector:
+    app: myapp
+  ports:
+  - port: 80
+    targetPort: 8080
+  # Route to endpoints in same zone first
+  topologyKeys:
+  - "topology.kubernetes.io/zone"
+  - "topology.kubernetes.io/region"
+  - "*"  # Fallback to any
+
+---
+# Service with custom healthcheck (for LoadBalancer)
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-with-healthcheck
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-path: "/health"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-interval: "10"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-timeout: "5"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-healthy-threshold: "2"
+    service.beta.kubernetes.io/aws-load-balancer-healthcheck-unhealthy-threshold: "2"
+spec:
+  type: LoadBalancer
+  selector:
+    app: myapp
+  ports:
+  - port: 80
+    targetPort: 8080
+

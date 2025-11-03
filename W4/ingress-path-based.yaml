@@ -1,0 +1,219 @@
+# Path-based routing - Route to different services based on URL path
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: path-based-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      # API service - /api/*
+      - path: /api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+      
+      # Frontend service - /web/*
+      - path: /web(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
+      
+      # Admin service - /admin/*
+      - path: /admin(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 3000
+      
+      # Default - everything else goes to main site
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: main-service
+            port:
+              number: 80
+
+---
+# API Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-service
+spec:
+  selector:
+    app: api
+  ports:
+  - port: 8080
+    targetPort: 8080
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: api
+  template:
+    metadata:
+      labels:
+        app: api
+    spec:
+      containers:
+      - name: api
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=API Service"
+        ports:
+        - containerPort: 5678
+          name: http
+
+---
+# Frontend Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24-alpine
+        ports:
+        - containerPort: 80
+
+---
+# Admin Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: admin-service
+spec:
+  selector:
+    app: admin
+  ports:
+  - port: 3000
+    targetPort: 3000
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: admin
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: admin
+  template:
+    metadata:
+      labels:
+        app: admin
+    spec:
+      containers:
+      - name: admin
+        image: hashicorp/http-echo:latest
+        args:
+        - "-text=Admin Panel"
+        - "-listen=:3000"
+        ports:
+        - containerPort: 3000
+
+---
+# Main Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: main-service
+spec:
+  selector:
+    app: main
+  ports:
+  - port: 80
+    targetPort: 80
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: main
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: main
+  template:
+    metadata:
+      labels:
+        app: main
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:1.24
+        ports:
+        - containerPort: 80
+
+---
+# Example with Exact path matching
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: exact-path-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      # Exact match - only /api (not /api/users)
+      - path: /api
+        pathType: Exact
+        backend:
+          service:
+            name: api-docs-service
+            port:
+              number: 80
+      
+      # Prefix match - /api/*, /api/users, etc.
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+

@@ -1,0 +1,408 @@
+# Advanced Ingress with various annotations
+
+# 1. Rate limiting
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rate-limit-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/limit-rps: "10"  # Requests per second
+    nginx.ingress.kubernetes.io/limit-rpm: "600"  # Requests per minute
+    nginx.ingress.kubernetes.io/limit-connections: "10"  # Concurrent connections
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+
+---
+# 2. Basic Authentication
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: basic-auth-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: basic-auth
+    nginx.ingress.kubernetes.io/auth-realm: 'Authentication Required'
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: admin.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: admin-service
+            port:
+              number: 80
+
+---
+# Create basic-auth secret:
+# htpasswd -c auth username
+# kubectl create secret generic basic-auth --from-file=auth
+apiVersion: v1
+kind: Secret
+metadata:
+  name: basic-auth
+type: Opaque
+data:
+  auth: YWRtaW46JGFwcjEkSDY1dnBOczkkdS9GN2N6bjBsdWpRZ0lQT0hDQUJOLgo=  # admin:password
+
+---
+# 3. Whitelist source IPs
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: whitelist-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/whitelist-source-range: "10.0.0.0/8,192.168.0.0/16"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: internal.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: internal-service
+            port:
+              number: 80
+
+---
+# 4. CORS configuration
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: cors-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "https://myapp.com"
+    nginx.ingress.kubernetes.io/cors-allow-credentials: "true"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,X-CustomHeader,Keep-Alive,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Authorization"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: api.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+
+---
+# 5. URL Rewriting
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: rewrite-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /$2
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      # /api/v1/* → /v1/*
+      - path: /api(/|$)(.*)
+        pathType: Prefix
+        backend:
+          service:
+            name: api-service
+            port:
+              number: 8080
+
+---
+# 6. Custom headers
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: custom-headers-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "X-Custom-Header: CustomValue";
+      more_set_headers "X-Frame-Options: DENY";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
+---
+# 7. Request timeout and size limits
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: timeout-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "100m"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "600"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: upload.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: upload-service
+            port:
+              number: 8080
+
+---
+# 8. Canary deployment (A/B testing)
+# Production service
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: production-ingress
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: production-service
+            port:
+              number: 80
+
+---
+# Canary service (10% of traffic)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canary-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"  # 10% of traffic
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: canary-service
+            port:
+              number: 80
+
+---
+# 9. Canary by header
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: canary-header-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-by-header: "X-Canary"
+    nginx.ingress.kubernetes.io/canary-by-header-value: "always"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: canary-service
+            port:
+              number: 80
+
+---
+# 10. Backend protocol (for HTTPS backends)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: https-backend-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    nginx.ingress.kubernetes.io/ssl-passthrough: "true"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: secure.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: secure-service
+            port:
+              number: 443
+
+---
+# 11. Sticky sessions (affinity)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sticky-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/affinity: "cookie"
+    nginx.ingress.kubernetes.io/session-cookie-name: "route"
+    nginx.ingress.kubernetes.io/session-cookie-max-age: "3600"
+    nginx.ingress.kubernetes.io/session-cookie-expires: "3600"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
+---
+# 12. OAuth2 authentication (requires oauth2-proxy)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: oauth-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/auth-url: "https://oauth2-proxy.myapp.com/oauth2/auth"
+    nginx.ingress.kubernetes.io/auth-signin: "https://oauth2-proxy.myapp.com/oauth2/start?rd=$escaped_request_uri"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: app.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: app-service
+            port:
+              number: 80
+
+---
+# 13. Custom error pages
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: custom-error-pages
+data:
+  404.html: |
+    <!DOCTYPE html>
+    <html>
+    <head><title>404 Not Found</title></head>
+    <body><h1>Page Not Found</h1></body>
+    </html>
+
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: custom-errors-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/custom-http-errors: "404,503"
+    nginx.ingress.kubernetes.io/default-backend: custom-error-backend
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
+---
+# 14. gRPC backend
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: grpc-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: "GRPC"
+spec:
+  ingressClassName: nginx
+  rules:
+  - host: grpc.myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: grpc-service
+            port:
+              number: 9000
+
+---
+# 15. Redirect HTTP to HTTPS
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: redirect-to-https
+  annotations:
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - myapp.com
+    secretName: myapp-tls
+  rules:
+  - host: myapp.com
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: web-service
+            port:
+              number: 80
+
