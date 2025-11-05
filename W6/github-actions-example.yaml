@@ -1,0 +1,268 @@
+# .github/workflows/deploy.yml
+# GitHub Actions workflow for Kubernetes deployment
+
+name: Build and Deploy to Kubernetes
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+  pull_request:
+    branches:
+      - main
+
+env:
+  DOCKER_REGISTRY: docker.io
+  IMAGE_NAME: myapp
+  KUBERNETES_NAMESPACE: production
+
+jobs:
+  # Job 1: Build and Test
+  build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v2
+    
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v2
+      with:
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+    
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+    
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v4
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+    
+    - name: Run tests
+      run: |
+        docker run --rm ${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} npm test
+
+  # Job 2: Deploy to Kubernetes
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+    
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+        chmod 600 $HOME/.kube/config
+    
+    - name: Verify cluster connection
+      run: kubectl cluster-info
+    
+    - name: Update deployment image
+      run: |
+        kubectl set image deployment/myapp \
+          myapp=${{ env.DOCKER_REGISTRY }}/${{ secrets.DOCKER_USERNAME }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+          -n ${{ env.KUBERNETES_NAMESPACE }}
+    
+    - name: Wait for rollout
+      run: |
+        kubectl rollout status deployment/myapp -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl get pods -n ${{ env.KUBERNETES_NAMESPACE }}
+    
+    - name: Verify deployment
+      run: |
+        kubectl get deployment myapp -n ${{ env.KUBERNETES_NAMESPACE }}
+        kubectl get pods -l app=myapp -n ${{ env.KUBERNETES_NAMESPACE }}
+
+---
+# Alternative: Deploy using kubectl apply
+name: Deploy with kubectl apply
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+    
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+    
+    - name: Substitute environment variables
+      run: |
+        sed -i "s|IMAGE_TAG|${{ github.sha }}|g" k8s/deployment.yaml
+        sed -i "s|ENVIRONMENT|production|g" k8s/deployment.yaml
+    
+    - name: Deploy to Kubernetes
+      run: |
+        kubectl apply -f k8s/ -n production
+        kubectl rollout status deployment/myapp -n production
+
+---
+# With Helm
+name: Deploy with Helm
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup kubectl
+      uses: azure/setup-kubectl@v3
+    
+    - name: Setup Helm
+      uses: azure/setup-helm@v3
+      with:
+        version: 'latest'
+    
+    - name: Configure kubectl
+      run: |
+        mkdir -p $HOME/.kube
+        echo "${{ secrets.KUBECONFIG }}" | base64 -d > $HOME/.kube/config
+    
+    - name: Deploy with Helm
+      run: |
+        helm upgrade --install myapp ./helm/myapp \
+          --namespace production \
+          --create-namespace \
+          --set image.tag=${{ github.sha }} \
+          --set environment=production \
+          --wait \
+          --timeout 5m
+
+---
+# Multi-environment deployment
+name: Multi-Environment Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - staging
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        include:
+          - branch: develop
+            environment: dev
+            namespace: development
+          - branch: staging
+            environment: staging
+            namespace: staging
+          - branch: main
+            environment: prod
+            namespace: production
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Deploy to ${{ matrix.environment }}
+      if: github.ref == format('refs/heads/{0}', matrix.branch)
+      run: |
+        # Setup kubectl
+        mkdir -p $HOME/.kube
+        echo "${{ secrets[format('KUBECONFIG_{0}', matrix.environment)] }}" | base64 -d > $HOME/.kube/config
+        
+        # Deploy
+        kubectl set image deployment/myapp \
+          myapp=myapp:${{ github.sha }} \
+          -n ${{ matrix.namespace }}
+        
+        kubectl rollout status deployment/myapp -n ${{ matrix.namespace }}
+
+---
+# With security scanning
+name: Build, Scan, and Deploy
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Build Docker image
+      run: docker build -t myapp:${{ github.sha }} .
+    
+    - name: Scan image with Trivy
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: myapp:${{ github.sha }}
+        format: 'sarif'
+        output: 'trivy-results.sarif'
+    
+    - name: Upload scan results
+      uses: github/codeql-action/upload-sarif@v2
+      with:
+        sarif_file: 'trivy-results.sarif'
+    
+    - name: Fail on HIGH/CRITICAL vulnerabilities
+      uses: aquasecurity/trivy-action@master
+      with:
+        image-ref: myapp:${{ github.sha }}
+        exit-code: '1'
+        severity: 'HIGH,CRITICAL'
+    
+    - name: Push image
+      run: |
+        echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
+        docker push myapp:${{ github.sha }}
+  
+  deploy:
+    needs: build-and-scan
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v3
+    
+    # ... deployment steps ...
+
